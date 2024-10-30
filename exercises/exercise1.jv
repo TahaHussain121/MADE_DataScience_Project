@@ -1,0 +1,55 @@
+
+
+// This Jayvee model describes a pipeline 
+// from a CSV file in the web 
+// to a SQLite file sink.
+pipeline AirportsPipeline {
+
+  
+  AirportsExtractor//Download csv file and load it as binary
+    -> AirportsTextFileInterpreter//interpret the binary file as text
+    -> AirportsCSVInterpreter//interpret the text file  as a sheet
+    -> AirportsTableInterpreter//interpret the sheet to table
+    -> AirportsLoader;//table into sqlite
+
+
+
+  //Download csv file and load it as binary
+  block AirportsExtractor oftype HttpExtractor {
+    // Here, we specify the URL where the file shall be downloaded from.
+    url: "https://opendata.rhein-kreis-neuss.de/api/explore/v2.1/catalog/datasets/rhein-kreis-neuss-flughafen-weltweit/exports/csv?lang=en&timezone=Europe%2FBerlin&use_labels=true&delimiter=%3B";
+  }
+
+  //interpret the binary file as text
+  block AirportsTextFileInterpreter oftype TextFileInterpreter { }
+
+  //interpret the text file  as a sheet
+  block AirportsCSVInterpreter oftype CSVInterpreter {
+     delimiter: ";";//columns are seperated by ;
+  }
+
+  //we interpret the sheet as a table by adding structure.
+  block AirportsTableInterpreter oftype TableInterpreter {
+    header: true;
+    columns: [
+      "Lfd. Nummer" oftype integer,
+      "Name des Flughafens" oftype text,
+      "Ort" oftype text, 
+      "Land" oftype text,
+      "IATA" oftype text,
+      "ICAO" oftype text,
+      "Latitude" oftype decimal,
+      "Longitude" oftype decimal,
+      "Altitude" oftype integer,
+      
+    ];
+  }
+
+  //table to sqlite
+  block AirportsLoader oftype SQLiteLoader {
+    table: "airports";
+    file: "./Airports.sqlite";
+  }
+
+    
+}
