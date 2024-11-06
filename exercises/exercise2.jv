@@ -1,0 +1,78 @@
+
+
+// This Jayvee model describes a pipeline 
+// from a CSV file in the web 
+// to a SQLite file sink.
+pipeline TreesPipeline {
+
+  
+  TreesExtractor//Download csv file and load it as binary
+    -> TreesTextFileInterpreter//interpret the binary file as text
+    -> TreesCSVInterpreter//interpret the text file  as a sheet
+    -> TreesColumnDeleter
+    -> TreesTableInterpreter//interpret the sheet to table
+    -> TreesLoader;//table into sqlite
+
+
+
+  //Download csv file and load it as binary
+  block TreesExtractor oftype HttpExtractor {
+    // Here, we specify the URL where the file shall be downloaded from.
+    url: "https://opendata.rhein-kreis-neuss.de/api/v2/catalog/datasets/stadt-neuss-herbstpflanzung-2023/exports/csv";
+  }
+
+  //interpret the binary file as text
+  block TreesTextFileInterpreter oftype TextFileInterpreter { }
+
+  //interpret the text file  as a sheet
+  block TreesCSVInterpreter oftype CSVInterpreter {
+     delimiter: ";";//columns are seperated by ;
+  }
+  
+   //column deleter
+  block TreesColumnDeleter oftype ColumnDeleter {
+   delete: [column E];
+  }
+ 
+  //valuetype for Stadtteil
+  valuetype StadtteilVal oftype text {
+    constraints: [ StadtteilFormat ];
+  }
+  
+  //valuetype for id
+  valuetype GeopointVal oftype text {
+    constraints: [ GeoFormat ];
+  }
+
+  //regex for Stadtteil.
+  constraint StadtteilFormat oftype RegexConstraint {
+   regex: /^Vogelsang(?:\s[\w-]+)*$/;
+  }
+
+  //regex for id (Geopoints)
+  constraint GeoFormat oftype RegexConstraint {
+   regex: /^\d{1,3}\.\d+,\s\d{1,3}\.\d+$/;
+  }
+
+  //we interpret the sheet as a table by adding structure.
+  block TreesTableInterpreter oftype TableInterpreter {
+    header: true;
+    columns: [
+      "lfd_nr" oftype integer,
+      "stadtteil" oftype StadtteilVal,
+      "standort" oftype text, 
+      "baumart_botanisch" oftype text,
+      "id" oftype GeopointVal,
+      "baumfamilie" oftype text,
+      
+    ];
+  }
+
+  //table to sqlite
+  block TreesLoader oftype SQLiteLoader {
+    table: "trees";
+    file: "./trees.sqlite";
+  }
+
+    
+}
