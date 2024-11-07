@@ -43,7 +43,8 @@ Contains earnings data by level of schooling, which can be used to assess the ec
 
 <!-- List of work packages ordered sequentially, each pointing to an issue with more details. -->
 
-1. Example Issue [#1][i1]
-2. ...
+1. Data Collection and Preparation [#1][i1]
+2. Segmentation of Rural and Urban Areas [#2][i2]
 
-[i1]: https://github.com/jvalue/made-template/issues/1
+[i1]: https://github.com/TahaHussain121/MADE_DataScience_Project/issues/1
+[i2]: https://github.com/TahaHussain121/MADE_DataScience_Project/issues/2
