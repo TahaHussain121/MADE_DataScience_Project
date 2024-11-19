@@ -14,19 +14,24 @@ pipeline CountryStatsPipeline {
     -> GDPLoader;
 
 
+  //Xlsx Extractor
   block CountryStatsExtractor oftype HttpExtractor {
     url: "https://thedocs.worldbank.org/en/doc/7d852628d96b9411d43e5d36d5dff941-0050062022/original/Graphs-Chapter-5-02082022.xlsx";
   }
  
+   //Xlsx Interpreter
   block CountryStatsXLSXInterpreter oftype XLSXInterpreter { }
 
-  
+    //Specific sheet reader
   block CountryStatsSheetpicker oftype SheetPicker {
     sheetName: 'Figure S5.1.2';  }
 
+  //Selects specific range of cells
   block RangeSelector oftype CellRangeSelector {
         select: range P2:S45;
     }
+
+  //Column Name writer
   block NameHeaderWriter oftype CellWriter {
     at: range P2:S2;
     write: [
@@ -36,7 +41,7 @@ pipeline CountryStatsPipeline {
       "Bond Issuance Share"
     ];
   }
-
+  //Bond Table 
   block BondTableInterpreter oftype TableInterpreter {
     header: true;
     columns: [
@@ -45,6 +50,7 @@ pipeline CountryStatsPipeline {
       
     ];
   }
+    //Gdp table 
   block GDPDataTableInterpreter oftype TableInterpreter {
         header: true;
         columns: [
@@ -53,10 +59,13 @@ pipeline CountryStatsPipeline {
         ];
     }
 
+  //Putting previous made gpd table into database
   block GDPLoader oftype SQLiteLoader {
     table: "gdpPerCapita";
     file: "./country-stats.sqlite";
   }
+
+  //Putting previous made Bond table into database
    block BondIssuanceLoader oftype SQLiteLoader {
      table: "bondIssuance";
      file: "./country-stats.sqlite";
@@ -64,24 +73,27 @@ pipeline CountryStatsPipeline {
 
 
 
-  
+  //GDP Value type 
   valuetype GDPVal oftype decimal {
     constraints: [
       PositiveDecimalConstraint
     ];
   }
 
+  //Decimal Contraint for GDPVal
   constraint PositiveDecimalConstraint oftype RangeConstraint {
-         lowerBound: 0;
+        lowerBound: 0;
         lowerBoundInclusive: false;
   }
 
+ //Bond Share Value type
   valuetype BondShareVal oftype decimal {
     constraints: [
       BondRangeConstraint
     ];
   }
 
+//Bond Contraint
   constraint BondRangeConstraint oftype RangeConstraint {
     lowerBound: 0.0;
     upperBound: 1.0;
