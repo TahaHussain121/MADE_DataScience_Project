@@ -1,0 +1,94 @@
+
+pipeline CountryStatsPipeline {
+    
+       CountryStatsExtractor
+    -> CountryStatsXLSXInterpreter
+    -> CountryStatsSheetpicker
+    -> NameHeaderWriter
+    -> RangeSelector
+    -> BondTableInterpreter
+    -> BondIssuanceLoader;
+
+    RangeSelector
+    -> GDPDataTableInterpreter
+    -> GDPLoader;
+
+
+  block CountryStatsExtractor oftype HttpExtractor {
+    url: "https://thedocs.worldbank.org/en/doc/7d852628d96b9411d43e5d36d5dff941-0050062022/original/Graphs-Chapter-5-02082022.xlsx";
+  }
+ 
+  block CountryStatsXLSXInterpreter oftype XLSXInterpreter { }
+
+  
+  block CountryStatsSheetpicker oftype SheetPicker {
+    sheetName: 'Figure S5.1.2';  }
+
+  block RangeSelector oftype CellRangeSelector {
+        select: range P2:S45;
+    }
+  block NameHeaderWriter oftype CellWriter {
+    at: range P2:S2;
+    write: [
+      "Country Code",
+      "Economy",
+      "GDP per Capita",
+      "Bond Issuance Share"
+    ];
+  }
+
+  block BondTableInterpreter oftype TableInterpreter {
+    header: true;
+    columns: [
+        "Country Code" oftype  CountryCodeAlpha3,    
+        "Bond Issuance Share" oftype BondShareVal
+      
+    ];
+  }
+  block GDPDataTableInterpreter oftype TableInterpreter {
+        header: true;
+        columns: [
+            "Country Code" oftype CountryCodeAlpha3,   
+            "GDP per Capita" oftype GDPVal   
+        ];
+    }
+
+  block GDPLoader oftype SQLiteLoader {
+    table: "gdpPerCapita";
+    file: "./country-stats.sqlite";
+  }
+   block BondIssuanceLoader oftype SQLiteLoader {
+     table: "bondIssuance";
+     file: "./country-stats.sqlite";
+  }
+
+
+
+  
+  valuetype GDPVal oftype decimal {
+    constraints: [
+      PositiveDecimalConstraint
+    ];
+  }
+
+  constraint PositiveDecimalConstraint oftype RangeConstraint {
+         lowerBound: 0;
+        lowerBoundInclusive: false;
+  }
+
+  valuetype BondShareVal oftype decimal {
+    constraints: [
+      BondRangeConstraint
+    ];
+  }
+
+  constraint BondRangeConstraint oftype RangeConstraint {
+    lowerBound: 0.0;
+    upperBound: 1.0;
+  }
+
+  
+ }
+
+
+  
