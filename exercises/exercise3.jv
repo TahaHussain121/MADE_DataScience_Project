@@ -1,6 +1,6 @@
 
 pipeline CountryStatsPipeline {
-    
+
        CountryStatsExtractor
     -> CountryStatsXLSXInterpreter
     -> CountryStatsSheetpicker
