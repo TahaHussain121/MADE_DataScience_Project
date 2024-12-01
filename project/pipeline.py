@@ -72,9 +72,15 @@ def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
     logger.debug("Transforming H1B data.")
     df = standardize_column_names(df)
     df = df[df['employer_name'].str.contains("Microsoft", case=False, na=False)]
-    df['received_date'] = pd.to_datetime(df['received_date'], errors='coerce')
+    df.loc[:, 'received_date'] = pd.to_datetime(df['received_date'], errors='coerce')
     df = df[(df['received_date'] >= '2023-04-01') & (df['received_date'] <= '2023-06-30')]
+    if 'soc_code' in df.columns:
+        df.loc[:, 'job_code'] = df['soc_code'].astype(str).str.split('.').str[0].str.strip()
+    else:
+        logger.error("Column 'soc_code' is missing. Cannot create 'job_code'.")
+        raise ValueError("Required column 'soc_code' not found in the dataset.")
     df['annual_wage'] = df.apply(lambda row: calculate_annual_wage(row['wage_rate_of_pay_from'], row['wage_unit_of_pay']), axis=1)
+    logger.debug(f"Transformed H1B data columns: {df.columns}")
     return df
 
 
@@ -135,3 +141,4 @@ if __name__ == "__main__":
         logger.info(f"Data pipeline complete. Database saved at {db_name}.")
     except Exception as e:
         logger.error(f"Pipeline execution failed: {e}")
+
