@@ -1,196 +1,137 @@
-import os
-import time
-import requests
 import pandas as pd
-from bs4 import BeautifulSoup
-from requests.adapters import HTTPAdapter, Retry
-from sqlalchemy import create_engine
-from selenium import webdriver
-from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+import sqlite3
+from io import BytesIO
+import requests
+import logging
 
-class DataPipeline:
+# Constants for wage calculations
+HOURS_IN_YEAR = 2080
+WEEKS_IN_YEAR = 52
+MONTHS_IN_YEAR = 12
 
-    def download_file_using_selenium(self, page_url, file_path, download_dir="data", max_retries=3, timeout=10):
-        try:
-            # Initialize the WebDriver
-            driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()))
+# Logging setup
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
 
-            # Open the specified page URL
-            driver.get(page_url)
 
-            # Get page source and close the driver
-            html = driver.page_source
-            driver.quit()
+# Utility Functions
+def download_file(url: str) -> BytesIO:
+    """Downloads a file from a URL and returns its content as a BytesIO object."""
+    try:
+        logger.debug(f"Downloading file from URL: {url}")
+        response = requests.get(url)
+        response.raise_for_status()
+        return BytesIO(response.content)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"Error occurred while downloading the file: {e}")
+        raise
 
-            # Parse the page source with BeautifulSoup
-            soup = BeautifulSoup(html, "html.parser")
-            start_of_url = "https://www.dol.gov"
 
-            # Construct the absolute URL for the desired file
-            absolute_url = start_of_url + file_path
-
-            # Ensure the download directory exists
-            os.makedirs(download_dir, exist_ok=True)
-            file_name = file_path.split("/")[-1]
-            file_save_path = os.path.join(download_dir, file_name)
-
-            # Retry logic for downloading the file
-            for attempt in range(max_retries):
-                try:
-                    print(f"Attempt {attempt + 1} to download the file.")
-                    response = requests.get(absolute_url, stream=True, timeout=timeout)
-                    
-                    # Check if the response is successful
-                    if response.status_code == 200:
-                        with open(file_save_path, "wb") as f:
-                            for chunk in response.iter_content(chunk_size=8192):
-                                f.write(chunk)
-                        # Check if the file is actually an Excel file by verifying the size
-                        if os.path.getsize(file_save_path) > 0:
-                            print(f"File downloaded successfully: {file_save_path}")
-                            return  # Exit the function after a successful download
-                        else:
-                            print("Downloaded file is empty. Retrying...")
-                            os.remove(file_save_path)
-                    else:
-                        print(f"Failed to download file. Status code: {response.status_code}")
-                        
-                except requests.exceptions.Timeout:
-                    print(f"Timeout on attempt {attempt + 1}. Retrying...")
-                except requests.exceptions.RequestException as e:
-                    print(f"Request failed on attempt {attempt + 1}: {e}")
-                    
-                # Wait before the next attempt
-                time.sleep(2)
-
-            raise Exception("Failed to download the file after multiple attempts.")
-
-        except Exception as e:
-            print(f"An error occurred: {e}")
-
-   
-    def download_file_simple(self, url, file_name, download_dir="data", timeout=10, max_retries=3):
-        try:
-            # Set up a session with retry strategy
-            session = requests.Session()
-            retries = Retry(
-                total=max_retries,
-                backoff_factor=1,
-                status_forcelist=[500, 502, 503, 504]
-            )
-            session.mount('https://', HTTPAdapter(max_retries=retries))
-
-            # Send GET request
-            response = session.get(url, timeout=timeout)
-            response.raise_for_status()
-            os.makedirs(download_dir, exist_ok=True)
-            file_save_path = os.path.join(download_dir, file_name)
-
-            # Save the content to a file
-            with open(file_save_path, 'wb') as file:
-                file.write(response.content)
-
-            print(f"Download successful: {file_save_path}")
-            return True
-
-        except requests.exceptions.HTTPError as http_err:
-            print(f"HTTP error occurred: {http_err}")
-        except requests.exceptions.ConnectionError as conn_err:
-            print(f"Connection error occurred: {conn_err}")
-        except requests.exceptions.Timeout as timeout_err:
-            print(f"Timeout error occurred: {timeout_err}")
-        except requests.exceptions.RequestException as req_err:
-            print(f"An error occurred: {req_err}")
-
-        return False
-
-    def download_h1b_data(self):
-        page_url = "https://www.dol.gov/agencies/eta/foreign-labor/performance"
-        file_path = "/sites/dolgov/files/ETA/oflc/pdfs/LCA_Disclosure_Data_FY2024_Q3.xlsx"
-        self.download_file_using_selenium(page_url, file_path)
-            
-    def download_washington_state_employment(self):
-        url = "https://esd.wa.gov/media/2861"
-        file_name = "state_employement.csv"
-        self.download_file_simple(url, file_name)
-            
-
-    def load_lca_data(self, filepath):
-        return pd.read_excel(filepath)
-
-    def load_occupation_data(self, filepath):
-        return pd.read_csv(filepath)     
-       
-    def filter_lca_data(self, df):
-        return df[
-            (df['EMPLOYER_NAME'] == 'Microsoft Corporation') &
-            (df['WORKSITE_CITY'].str.contains('Seattle', case=False, na=False))
-        ][[
-            'EMPLOYER_NAME', 'WORKSITE_CITY', 'BASE_SALARY', 'JOB_TITLE',
-            'WAGE_RATE', 'WAGE_LEVEL', 'WORKSITE_COUNTY', 'WORKSITE_POSTAL_CODE'
-        ]]
-
-    def filter_occupation_data(self, df):
-        return df[
-            df['AREA_NAME'].str.contains('Seattle-Bellevue-Everett', case=False, na=False)
-        ][[
-            'OCCUPATION_CODE', 'OCCUPATION_TITLE', 'AREA_NAME',
-            'WAGE_MEAN', 'WAGE_MEDIAN', 'EMPLOYMENT_COUNT'
-        ]]
-
-    def merge_datasets(self, lca_df, occupation_df):
-        return pd.merge(
-            lca_df, occupation_df,
-            how='inner',
-            left_on='JOB_TITLE', right_on='OCCUPATION_TITLE'
-        )
-
-    def save_to_database(self, df, table_name, db_engine):
-        df.to_sql(table_name, con=db_engine, if_exists='replace', index=False)
-
-    def main(self):
-        # Define file paths
-        lca_file_path = 'data/LCA_Disclosure_Data_FY2024_Q3.xlsx'
-        occupation_file_path = 'data/state_employement.csv'
-
-        # Check if files are already downloaded; if not, download them
-        if not os.path.exists(lca_file_path):
-            print("LCA file not found. Downloading LCA data...")
-            self.download_h1b_data()
+def parse_file(file_content: BytesIO, file_type: str, sheet_name: str = None) -> pd.DataFrame:
+    """Parses a CSV or Excel file content into a pandas DataFrame."""
+    try:
+        logger.debug(f"Parsing file content. File type: {file_type}, Sheet name: {sheet_name}")
+        if file_type == 'csv':
+            return pd.read_csv(file_content)
+        elif file_type == 'excel':
+            data = pd.read_excel(file_content, sheet_name=None)
+            if isinstance(data, dict):  # Handle multiple sheets
+                if sheet_name is None:
+                    sheet_name = list(data.keys())[0]
+                    logger.debug(f"Defaulting to the first sheet: {sheet_name}")
+                return data[sheet_name]
+            return data
         else:
-            print("LCA file already exists. Skipping download.")
+            raise ValueError("Invalid file type. Must be 'csv' or 'excel'.")
+    except Exception as e:
+        logger.error(f"Error parsing file: {e}")
+        raise
 
-        if not os.path.exists(occupation_file_path):
-            print("Occupation data file not found. Downloading occupation data...")
-            self.download_washington_state_employment()
-        else:
-            print("Occupation data file already exists. Skipping download.")
 
-        # Load datasets only if files exist
-        if os.path.exists(lca_file_path) and os.path.exists(occupation_file_path):
-            # Load datasets
-            lca_df = self.load_lca_data(lca_file_path)
-            occupation_df = self.load_occupation_data(occupation_file_path)
-            
-            # Filter data
-            filtered_lca = self.filter_lca_data(lca_df)
-            filtered_occupation = self.filter_occupation_data(occupation_df)
-            
-            # Merge datasets
-            merged_data = self.merge_datasets(filtered_lca, filtered_occupation)
-            
-            # Database connection (replace with your database configuration)
-            engine = create_engine('sqlite:///integrated_data.db')
-            
-            # Save filtered and merged data to database
-            self.save_to_database(filtered_lca, 'lca_data', engine)
-            self.save_to_database(filtered_occupation, 'occupation_data', engine)
-            self.save_to_database(merged_data, 'merged_data', engine)
-        else:
-            print("Error: One or both data files are missing, unable to load data.")
+# Data Transformation Functions
+def standardize_column_names(df: pd.DataFrame) -> pd.DataFrame:
+    """Standardizes column names by converting to lowercase and replacing spaces with underscores."""
+    df.columns = [col.lower().replace(" ", "_") for col in df.columns]
+    return df
 
-# Run the pipeline
+
+def calculate_annual_wage(wage: float, unit: str) -> float:
+    """Converts wage rates to annual values based on unit of pay."""
+    unit = unit.lower() if pd.notnull(unit) else ''
+    if unit == 'hour':
+        return wage * HOURS_IN_YEAR
+    if unit == 'week':
+        return wage * WEEKS_IN_YEAR
+    if unit == 'month':
+        return wage * MONTHS_IN_YEAR
+    return wage
+
+
+def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
+    """Transforms and filters the H1B dataset for relevant roles."""
+    logger.debug("Transforming H1B data.")
+    df = standardize_column_names(df)
+    df = df[df['employer_name'].str.contains("Microsoft", case=False, na=False)]
+    df['received_date'] = pd.to_datetime(df['received_date'], errors='coerce')
+    df = df[(df['received_date'] >= '2023-04-01') & (df['received_date'] <= '2023-06-30')]
+    df['annual_wage'] = df.apply(lambda row: calculate_annual_wage(row['wage_rate_of_pay_from'], row['wage_unit_of_pay']), axis=1)
+    return df
+
+
+def transform_oews_data(df: pd.DataFrame, relevant_job_codes) -> pd.DataFrame:
+    """Filters OEWS data for relevant job codes."""
+    logger.debug("Transforming OEWS data.")
+    df = standardize_column_names(df)
+    df = df[df['soc_code'].isin(relevant_job_codes)]
+    df['avg_local_wage'] = pd.to_numeric(df['annual_mean_wage'], errors='coerce')
+    return df.dropna(subset=['avg_local_wage'])
+
+
+def merge_datasets(h1b_df: pd.DataFrame, oews_df: pd.DataFrame) -> pd.DataFrame:
+    """Merges H1B and OEWS datasets and calculates wage differences."""
+    logger.debug("Merging H1B and OEWS datasets.")
+    merged_df = h1b_df.merge(oews_df, left_on='job_code', right_on='soc_code', how='inner')
+    merged_df['wage_diff'] = merged_df['annual_wage'] - merged_df['avg_local_wage']
+    return merged_df
+
+
+# Database Functions
+def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
+    """Saves a DataFrame to an SQLite database."""
+    try:
+        logger.debug(f"Saving data to database: {db_name}, table: {table_name}")
+        with sqlite3.connect(db_name) as conn:
+            df.to_sql(table_name, conn, if_exists='replace', index=False)
+    except Exception as e:
+        logger.error(f"Error saving to database: {e}")
+        raise
+
+
+# Main Execution
 if __name__ == "__main__":
-    pipeline = DataPipeline()
-    pipeline.main()
+    try:
+        # URLs for datasets
+        h1b_url = "https://www.dol.gov/sites/dolgov/files/ETA/oflc/pdfs/LCA_Disclosure_Data_FY2023_Q3.xlsx"
+        oews_url = "https://esd.wa.gov/media/2861"
+
+        # Step 1: Fetch and parse datasets
+        h1b_df = parse_file(download_file(h1b_url), file_type='excel')
+        oews_df = parse_file(download_file(oews_url), file_type='excel', sheet_name='Statewide')
+
+        # Step 2: Transform datasets
+        h1b_transformed = transform_h1b_data(h1b_df)
+        relevant_job_codes = h1b_transformed['job_code'].unique()
+        oews_transformed = transform_oews_data(oews_df, relevant_job_codes)
+
+        # Step 3: Merge datasets
+        final_df = merge_datasets(h1b_transformed, oews_transformed)
+
+        # Step 4: Save results to database
+        db_name = "h1b_oews_analysis.db"
+        save_to_database(h1b_transformed, db_name, "h1b_microsoft_roles")
+        save_to_database(oews_transformed, db_name, "oews_microsoft_roles")
+        save_to_database(final_df, db_name, "h1b_oews_combined")
+
+        logger.info(f"Data pipeline complete. Database saved at {db_name}.")
+    except Exception as e:
+        logger.error(f"Pipeline execution failed: {e}")
