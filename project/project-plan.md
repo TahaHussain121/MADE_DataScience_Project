@@ -29,7 +29,7 @@ To ensure robust findings, control variables such as role-specific demand and in
 
 ### Datasource1: H1B Labor Condition Application Dataset (LCA)
 * Metadata URL: https://www.dol.gov
-* Data URL: https://afdc.energy.gov/data_download
+* Data URL: https://www.dol.gov/sites/dolgov/files/ETA/oflc/pdfs/LCA_Disclosure_Data_FY2023_Q3.xlsx
 * Data Type: Excel
 
 Provides information on job roles, employers, wages, SOC codes, and locations for H1B workers.
