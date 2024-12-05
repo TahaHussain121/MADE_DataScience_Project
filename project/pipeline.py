@@ -161,13 +161,25 @@ def merge_datasets(h1b_df: pd.DataFrame, oews_df: pd.DataFrame) -> pd.DataFrame:
     return merged_df
 
 
+import os
+
 def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
-    """Saves a DataFrame into an SQLite database."""
-    debug_print(f"Saving data to SQLite database: {db_name}, table: {table_name}")
-    conn = sqlite3.connect(db_name)
+    """
+    Saves a DataFrame into an SQLite database in the ../data directory.
+    """
+    # Define the path for the database in the ../data directory
+    db_path = os.path.join("../data", db_name)
+
+    # Ensure the ../data directory exists
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+
+    # Save the DataFrame to the database
+    debug_print(f"Saving data to SQLite database: {db_path}, table: {table_name}")
+    conn = sqlite3.connect(db_path)
     df.to_sql(table_name, conn, if_exists='replace', index=False)
     conn.close()
     debug_print(f"Data successfully saved to SQLite database.")
+
 
 
 if __name__ == "__main__":
