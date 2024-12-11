@@ -1,36 +1,38 @@
-name: Project workflow
+name: CI Pipeline
 
 on:
   push:
     branches:
-      - main
-   
+      - main  # Run the workflow on pushes to the main branch
+  pull_request:
+    branches:
+      - main  # Run the workflow for pull requests to the main branch
 
 jobs:
-  exercise-feedback:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          path: main
+  test:
+    runs-on: ubuntu-latest  # Use the latest Ubuntu runner
 
-      # Install python
+    steps:
+      # Step 1: Checkout the repository
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      # Step 2: Set up Python 3.11
       - name: Set up Python 3.11
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v4
         with:
           python-version: 3.11
 
-      # Run project feedback
-      - name: Project feedback
-        working-directory: project
+      # Step 3: Install dependencies
+      - name: Install dependencies
         run: |
-         cmod +x tests.sh
-          ./tests.sh
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-      # Upload feedback
-      - name: Upload feedback
-        uses: actions/upload-artifact@v4
-        with:
-          name: feedback
-          path: feedback.txt
+      # Step 4: Make the test script executable
+      - name: Make tests.sh executable
+        run: chmod +x tests.sh
+
+      # Step 5: Run the test script
+      - name: Run tests
+        run: ./tests.sh
