@@ -23,7 +23,6 @@ jobs:
 
       # Run project feedback
       - name: Project feedback
-        id: project_feedback
         working-directory: project
         run: |
          cmod +x tests.sh
