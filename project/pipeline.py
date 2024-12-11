@@ -109,6 +109,7 @@ def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
 
     relevant_columns = ['occupation_title', 'employer_name', 'job_code', 'annual_wage']
     df = df[relevant_columns]
+    
     debug_print(f"Rows after retaining one row per job code: {len(df)}")
     return df
 
