@@ -161,7 +161,6 @@ def merge_datasets(h1b_df: pd.DataFrame, oews_df: pd.DataFrame) -> pd.DataFrame:
     return merged_df
 
 
-import os
 
 def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
     """

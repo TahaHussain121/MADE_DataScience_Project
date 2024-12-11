@@ -1,0 +1,37 @@
+name: Project workflow
+
+on:
+  push:
+    branches:
+      - main
+   
+
+jobs:
+  exercise-feedback:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: main
+
+      # Install python
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: 3.11
+
+      # Run project feedback
+      - name: Project feedback
+        id: project_feedback
+        working-directory: project
+        run: |
+         cmod +x tests.sh
+          ./tests.sh
+
+      # Upload feedback
+      - name: Upload feedback
+        uses: actions/upload-artifact@v4
+        with:
+          name: feedback
+          path: feedback.txt
