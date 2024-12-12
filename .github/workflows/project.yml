@@ -29,8 +29,8 @@ jobs:
           pip install -r main/project/requirements.txt
 
       # Run project tests
-      - name: Execute tests
-        id: ex_tests
+      - name: Run tests
         run: |
           cd main/project
-          ./tests.sh || exit 1
+          chmod +x tests.sh
+          ./tests.sh
