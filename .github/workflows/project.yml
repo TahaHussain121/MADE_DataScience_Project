@@ -33,19 +33,4 @@ jobs:
         id: ex_tests
         run: |
           cd main/project
-          ./tests.sh | tee result.log
-
-      # Upload full tests report
-      - name: Upload tests report
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: tests-report
-          path: main/project/result.log
-
-      # Upload database of test with real data
-      - name: Upload database of test-results
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-database
-          path: main/data/data.sqlite
+          ./tests.sh || exit 1
