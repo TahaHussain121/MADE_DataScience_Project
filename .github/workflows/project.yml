@@ -1,38 +1,51 @@
-name: CI Pipeline
+name: project
 
 on:
   push:
     branches:
-      - main  # Run the workflow on pushes to the main branch
-  pull_request:
-    branches:
-      - main  # Run the workflow for pull requests to the main branch
+      - main
+    paths:
+      - project/**
+      - .github/workflows/project.yml
 
 jobs:
-  test:
-    runs-on: ubuntu-latest  # Use the latest Ubuntu runner
-
+  execute-tests:
+    runs-on: ubuntu-latest
     steps:
-      # Step 1: Checkout the repository
-      - name: Checkout repository
-        uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          path: main
 
-      # Step 2: Set up Python 3.11
+      # Install python
       - name: Set up Python 3.11
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: 3.11
 
-      # Step 3: Install dependencies
-      - name: Install dependencies
+      # Install Python dependencies
+      - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          pip install -r project/requirements.txt  # Specify the correct path to requirements.txt
+          pip install -r main/project/requirements.txt
 
-      # Step 4: Make the test script executable
-      - name: Make tests.sh executable
-        run: chmod +x project/tests.sh  
+      # Run project tests
+      - name: Execute tests
+        id: ex_tests
+        run: |
+          cd main/project
+          ./tests.sh | tee result.log
 
-      # Step 5: Run the test script
-      - name: Run tests
-        run: ./project/tests.sh  
+      # Upload full tests report
+      - name: Upload tests report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tests-report
+          path: main/project/result.log
+
+      # Upload database of test with real data
+      - name: Upload database of test-results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-database
+          path: main/data/data.sqlite
