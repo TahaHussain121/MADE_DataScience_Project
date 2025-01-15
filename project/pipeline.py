@@ -5,9 +5,8 @@ from io import BytesIO
 import requests
 import matplotlib.pyplot as plt
 
-# Debug variable
+# Debug variable 
 DEBUG = True
-
 
 def debug_print(message):
     """Prints a debug message if DEBUG is True."""
