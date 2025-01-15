@@ -5,6 +5,8 @@ from io import BytesIO
 import requests
 import matplotlib.pyplot as plt
 
+
+
 # Debug variable 
 DEBUG = True
 
