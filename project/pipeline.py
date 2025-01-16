@@ -4,8 +4,7 @@ import sqlite3
 from io import BytesIO
 import requests
 import matplotlib.pyplot as plt
-
-
+import seaborn as sns
 
 # Debug variable 
 DEBUG = True
@@ -14,7 +13,6 @@ def debug_print(message):
     """Prints a debug message if DEBUG is True."""
     if DEBUG:
         print(f"[DEBUG] {message}")
-
 
 def download_file(url: str) -> BytesIO:
     """Downloads a file from a URL and returns its content as a BytesIO object."""
@@ -26,7 +24,6 @@ def download_file(url: str) -> BytesIO:
     except Exception as e:
         print(f"Error occurred while downloading the file: {str(e)}")
         raise
-
 
 def parse_file(file_content: BytesIO, file_type: str = None, sheet_name: str = None) -> pd.DataFrame:
     """Parses a CSV or Excel file content into a pandas DataFrame."""
@@ -59,24 +56,20 @@ def parse_file(file_content: BytesIO, file_type: str = None, sheet_name: str = N
         print(f"Error occurred while parsing the file: {str(e)}")
         raise
 
-
 def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Transforms and filters the H1B dataset for Microsoft roles in Q2 2023."""
+    """Transforms and filters the H1B dataset for all companies."""
     debug_print("Starting H1B data transformation.")
     df.columns = [col.lower().replace(" ", "_") for col in df.columns]
     debug_print(f"Initial H1B dataset rows: {len(df)}")
 
-    # Filter for Microsoft roles and CASE_STATUS == "CERTIFIED"
-    df = df[
-        (df['employer_name'].str.contains("Microsoft", case=False, na=False)) &
-        (df['case_status'].str.strip().str.upper() == 'CERTIFIED')
-    ]
-    debug_print(f"Rows after filtering for Microsoft roles: {len(df)}")
+    # Filter for CASE_STATUS == "CERTIFIED"
+    df = df[df['case_status'].str.strip().str.upper() == 'CERTIFIED']
+    debug_print(f"Rows after filtering for certified cases: {len(df)}")
 
-    # Filter for Q2 2023
+    # Filter for dates within a specific range
     df['received_date'] = pd.to_datetime(df['received_date'], errors='coerce')
     df = df[(df['received_date'] >= '2023-04-01') & (df['received_date'] <= '2023-06-30')]
-    debug_print(f"Rows after filtering by Q2 2023: {len(df)}")
+    debug_print(f"Rows after filtering by date range: {len(df)}")
 
     # Standardize SOC codes and remove decimals
     df = df.rename(columns={'soc_code': 'job_code', 'soc_title': 'occupation_title'})
@@ -106,14 +99,13 @@ def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
     df = df[(df['annual_wage'] >= 20000) & (df['annual_wage'] <= 300000)]
     debug_print(f"Rows after filtering out wage outliers: {len(df)}")
 
-    # Retain one row per job code with the highest annual wage
-    df = df.sort_values(by='annual_wage', ascending=False).drop_duplicates(subset='job_code', keep='first')
+    # Retain one row per employer and job code with the average annual wage
+    df = df.groupby(['employer_name', 'job_code', 'occupation_title'], as_index=False).agg({
+        'annual_wage': 'mean'
+    })
 
-    relevant_columns = ['occupation_title', 'employer_name', 'job_code', 'annual_wage']
-    df = df[relevant_columns]
-    debug_print(f"Rows after retaining one row per job code: {len(df)}")
+    debug_print(f"Rows after grouping by employer and job code: {len(df)}")
     return df
-
 
 def transform_oews_data(df: pd.DataFrame, relevant_job_codes) -> pd.DataFrame:
     """Transforms the OEWS dataset to include only relevant job codes."""
@@ -153,7 +145,6 @@ def transform_oews_data(df: pd.DataFrame, relevant_job_codes) -> pd.DataFrame:
     debug_print(f"Rows after retaining relevant columns: {len(df)}")
     return df
 
-
 def merge_datasets(h1b_df: pd.DataFrame, oews_df: pd.DataFrame) -> pd.DataFrame:
     """Merges the H1B and OEWS datasets on job code."""
     debug_print("Merging H1B and OEWS datasets.")
@@ -161,8 +152,6 @@ def merge_datasets(h1b_df: pd.DataFrame, oews_df: pd.DataFrame) -> pd.DataFrame:
     merged_df['wage_diff'] = pd.to_numeric(merged_df['annual_wage'], errors='coerce') - pd.to_numeric(merged_df['avg_local_wage'], errors='coerce')
     debug_print("Wage difference column added.")
     return merged_df
-
-
 
 def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
     """
@@ -181,7 +170,49 @@ def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
     conn.close()
     debug_print(f"Data successfully saved to SQLite database.")
 
+def visualize_h1b_vs_general_wages(final_df):
+    """Visualizes H1B wages vs. general workforce wages."""
+    plt.figure(figsize=(12, 6))
+    sns.histplot(final_df['annual_wage'], kde=True, color="blue", label="H1B Wages", bins=30)
+    sns.histplot(final_df['avg_local_wage'], kde=True, color="orange", label="General Workforce Wages", bins=30)
+    plt.axvline(final_df['annual_wage'].mean(), color='blue', linestyle='--', label=f"H1B Mean: ${final_df['annual_wage'].mean():,.0f}")
+    plt.axvline(final_df['avg_local_wage'].mean(), color='orange', linestyle='--', label=f"General Workforce Mean: ${final_df['avg_local_wage'].mean():,.0f}")
+    plt.title("H1B vs General Workforce Wages in Washington's Tech Sector")
+    plt.xlabel("Annual Wage (USD)")
+    plt.ylabel("Frequency")
+    plt.legend()
+    plt.show()
 
+def visualize_biggest_wage_gaps(final_df):
+    """Visualizes the biggest wage gaps by occupation."""
+    top_gaps = final_df.sort_values(by='wage_diff', ascending=False).head(10)
+    plt.figure(figsize=(10, 6))
+    sns.barplot(y=top_gaps['occupation_title'], x=top_gaps['wage_diff'], palette="viridis")
+    plt.title("Top 10 Tech Occupations with Biggest Wage Gaps (H1B - General)")
+    plt.xlabel("Wage Difference (USD)")
+    plt.ylabel("Occupation Title")
+    plt.show()
+
+def visualize_company_wages(h1b_transformed):
+    """Visualizes companies with the highest average H1B wages."""
+    company_wages = h1b_transformed.groupby('employer_name')['annual_wage'].mean().reset_index()
+    top_companies = company_wages.sort_values(by='annual_wage', ascending=False).head(10)
+    plt.figure(figsize=(12, 6))
+    sns.barplot(y=top_companies['employer_name'], x=top_companies['annual_wage'], palette="coolwarm")
+    plt.title("Top 10 Companies with Highest Average H1B Wages")
+    plt.xlabel("Average Annual H1B Wage (USD)")
+    plt.ylabel("Company Name")
+    plt.show()
+
+def visualize_h1b_role_distribution(h1b_transformed):
+    """Visualizes the distribution of H1B workers by role."""
+    role_distribution = h1b_transformed['occupation_title'].value_counts().head(10)
+    plt.figure(figsize=(10, 6))
+    sns.barplot(y=role_distribution.index, x=role_distribution.values, palette="cubehelix")
+    plt.title("Top 10 Tech Roles for H1B Workers in Washington")
+    plt.xlabel("Number of H1B Workers")
+    plt.ylabel("Occupation Title")
+    plt.show()
 
 if __name__ == "__main__":
     # URLs for datasets
@@ -208,15 +239,14 @@ if __name__ == "__main__":
 
     # Step 6: Save the datasets
     db_name = "h1b_oews_analysis.db"
-    save_to_database(h1b_transformed, db_name, "h1b_microsoft_roles")
-    save_to_database(oews_transformed, db_name, "oews_microsoft_roles")
+    save_to_database(h1b_transformed, db_name, "h1b_roles")
+    save_to_database(oews_transformed, db_name, "oews_roles")
     save_to_database(final_df, db_name, "h1b_oews_combined")
 
-    # Print final columns and sample rows
-    if DEBUG:
-        print("\n[DEBUG] Final columns in the combined dataset:")
-        print(final_df.columns)
-        print("\n[DEBUG] Sample rows from the combined dataset:")
-        print(final_df.head())
+    # Visualizations
+    visualize_h1b_vs_general_wages(final_df)
+    visualize_biggest_wage_gaps(final_df)
+    visualize_company_wages(h1b_transformed)
+    visualize_h1b_role_distribution(h1b_transformed)
 
     print(f"Data pipeline complete. Final database saved at: {db_name}")
