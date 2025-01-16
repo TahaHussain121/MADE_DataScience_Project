@@ -5,6 +5,9 @@ from io import BytesIO
 import requests
 import matplotlib.pyplot as plt
 import seaborn as sns
+from scipy.stats import ttest_ind
+import numpy as np
+
 
 # Debug variable 
 DEBUG = True
@@ -57,7 +60,7 @@ def parse_file(file_content: BytesIO, file_type: str = None, sheet_name: str = N
         raise
 
 def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
-    """Transforms and filters the H1B dataset for all companies."""
+    """Transforms and filters the H1B dataset for specific companies."""
     debug_print("Starting H1B data transformation.")
     df.columns = [col.lower().replace(" ", "_") for col in df.columns]
     debug_print(f"Initial H1B dataset rows: {len(df)}")
@@ -65,6 +68,11 @@ def transform_h1b_data(df: pd.DataFrame) -> pd.DataFrame:
     # Filter for CASE_STATUS == "CERTIFIED"
     df = df[df['case_status'].str.strip().str.upper() == 'CERTIFIED']
     debug_print(f"Rows after filtering for certified cases: {len(df)}")
+
+    # Filter for specific companies
+    target_companies = ["microsoft", "google llc",  "amazon web services"]
+    df = df[df['employer_name'].str.contains('|'.join(target_companies), case=False, na=False)]
+    debug_print(f"Rows after filtering for target companies: {len(df)}")
 
     # Filter for dates within a specific range
     df['received_date'] = pd.to_datetime(df['received_date'], errors='coerce')
@@ -137,8 +145,8 @@ def transform_oews_data(df: pd.DataFrame, relevant_job_codes) -> pd.DataFrame:
     debug_print(f"Rows after filtering OEWS data for relevant job codes: {len(df)}")
 
     # Remove outliers
-    df = df[(df['avg_local_wage'] >= 20000) & (df['avg_local_wage'] <= 300000)]
-    debug_print(f"Rows after filtering out wage outliers: {len(df)}")
+    #df = df[(df['avg_local_wage'] >= 20000) & (df['avg_local_wage'] <= 300000)]
+    #debug_print(f"Rows after filtering out wage outliers: {len(df)}")
 
     relevant_columns = ['occupation_title', 'job_code', 'avg_local_wage']
     df = df[relevant_columns]
@@ -146,12 +154,21 @@ def transform_oews_data(df: pd.DataFrame, relevant_job_codes) -> pd.DataFrame:
     return df
 
 def merge_datasets(h1b_df: pd.DataFrame, oews_df: pd.DataFrame) -> pd.DataFrame:
-    """Merges the H1B and OEWS datasets on job code."""
+    """Merges the H1B and OEWS datasets on job code, keeping only the H1B occupation_title."""
     debug_print("Merging H1B and OEWS datasets.")
-    merged_df = h1b_df.merge(oews_df, on='job_code', how='inner')
+    # Select only the necessary columns from each dataset
+    h1b_selected = h1b_df[['job_code', 'occupation_title', 'annual_wage','employer_name']]
+    oews_selected = oews_df[['job_code', 'avg_local_wage']]
+    
+    # Merge on job_code
+    merged_df = h1b_selected.merge(oews_selected, on='job_code', how='inner')
+    
+    # Calculate the wage difference
     merged_df['wage_diff'] = pd.to_numeric(merged_df['annual_wage'], errors='coerce') - pd.to_numeric(merged_df['avg_local_wage'], errors='coerce')
+    
     debug_print("Wage difference column added.")
     return merged_df
+
 
 def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
     """
@@ -170,50 +187,129 @@ def save_to_database(df: pd.DataFrame, db_name: str, table_name: str):
     conn.close()
     debug_print(f"Data successfully saved to SQLite database.")
 
-def visualize_h1b_vs_general_wages(final_df):
-    """Visualizes H1B wages vs. general workforce wages."""
-    plt.figure(figsize=(12, 6))
-    sns.histplot(final_df['annual_wage'], kde=True, color="blue", label="H1B Wages", bins=30)
-    sns.histplot(final_df['avg_local_wage'], kde=True, color="orange", label="General Workforce Wages", bins=30)
-    plt.axvline(final_df['annual_wage'].mean(), color='blue', linestyle='--', label=f"H1B Mean: ${final_df['annual_wage'].mean():,.0f}")
-    plt.axvline(final_df['avg_local_wage'].mean(), color='orange', linestyle='--', label=f"General Workforce Mean: ${final_df['avg_local_wage'].mean():,.0f}")
-    plt.title("H1B vs General Workforce Wages in Washington's Tech Sector")
+def correlation_analysis(df, output_path):
+    """Performs and visualizes correlation analysis."""
+    correlation = df['annual_wage'].corr(df['avg_local_wage'])
+    print(f"Correlation between H1B wages and general workforce wages: {correlation:.2f}")
+
+    # Visualization
+    plt.figure(figsize=(8, 6))
+    sns.scatterplot(x=df['annual_wage'], y=df['avg_local_wage'], alpha=0.7)
+    plt.title(f"Correlation Between H1B and General Workforce Wages (r = {correlation:.2f})")
+    plt.xlabel("H1B Annual Wage (USD)")
+    plt.ylabel("General Workforce Annual Wage (USD)")
+    plt.savefig(os.path.join(output_path, "correlation_analysis.png"), dpi=300)
+    plt.show()
+    plt.close()
+    
+
+def t_test_analysis(df, output_path):
+    """Performs and visualizes a t-test between H1B and general workforce wages."""
+    t_stat, p_value = ttest_ind(df['annual_wage'], df['avg_local_wage'], equal_var=False)
+    print(f"T-Test Statistic: {t_stat:.2f}, P-Value: {p_value:.4f}")
+
+    # Visualization
+    plt.figure(figsize=(8, 6))
+    sns.kdeplot(df['annual_wage'], label="H1B Wages", fill=True, alpha=0.5)
+    sns.kdeplot(df['avg_local_wage'], label="General Workforce Wages", fill=True, alpha=0.5)
+    plt.title("Distribution of Wages with T-Test Results")
     plt.xlabel("Annual Wage (USD)")
-    plt.ylabel("Frequency")
+    plt.ylabel("Density")
     plt.legend()
+    plt.savefig(os.path.join(output_path, "t_test_analysis.png"), dpi=300)
     plt.show()
+    plt.close()
+    
+def create_visualizations(final_df, output_dir):
+    """Generates and saves visualizations based on the merged dataset."""
+    os.makedirs(output_dir, exist_ok=True)
 
-def visualize_biggest_wage_gaps(final_df):
-    """Visualizes the biggest wage gaps by occupation."""
-    top_gaps = final_df.sort_values(by='wage_diff', ascending=False).head(10)
+    # Focus on specific companies
+    companies_of_interest = ["microsoft", "google llc", "amazon web services"]
+    filtered_df = final_df[final_df['employer_name'].str.contains('|'.join(companies_of_interest), case=False)]
+
+    # Get top 5 most common roles across all companies
+    top_5_roles = filtered_df['occupation_title'].value_counts().head(5).index
+
+    # Filter data for top 5 roles only
+    top_roles_df = filtered_df[filtered_df['occupation_title'].isin(top_5_roles)]
+
+    # 1. Average H1B vs. General Workforce Wages per Company and Role
+    plt.figure(figsize=(15, 8))
+
+    # Calculate positions for grouped bars
+    width = 0.35
+    x = np.arange(len(top_5_roles))
+
+    # Create grouped bar plot for each company
+    for i, company in enumerate(companies_of_interest):
+        company_data = top_roles_df[top_roles_df['employer_name'].str.contains(company, case=False)]
+
+        # Initialize arrays with NaN to match the length of top_5_roles
+        avg_wages = np.full(len(top_5_roles), np.nan)
+        local_wages = np.full(len(top_5_roles), np.nan)
+
+        # Fill in the data where available
+        for j, role in enumerate(top_5_roles):
+            role_data = company_data[company_data['occupation_title'] == role]
+            if not role_data.empty:
+                avg_wages[j] = role_data['annual_wage'].mean()
+                local_wages[j] = role_data['avg_local_wage'].mean()
+
+        # Only plot non-NaN values
+        mask = ~np.isnan(avg_wages)
+        if np.any(mask):
+            offset = (i - 1) * width
+            plt.bar(x[mask] + offset, avg_wages[mask], width,
+                   label=f'{company} H1B Wages')
+            plt.bar(x[mask] + offset + width/3, local_wages[mask], width/3,
+                   label=f'{company} Local Wages', alpha=0.7)
+
+    plt.xlabel('Occupation Title')
+    plt.ylabel('Average Wage (USD)')
+    plt.title('H1B vs Local Wages by Company and Role\n(Top 5 Most Common Roles)')
+    plt.xticks(x, top_5_roles, rotation=45, ha='right')
+    plt.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    plt.grid(True, axis='y', linestyle='--', alpha=0.7)
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "role_wage_comparison.png"),
+                dpi=300, bbox_inches='tight')
+    plt.close()
+
+    # 2. Largest Wage Differences by Job Title
+    wage_diff_by_title = filtered_df.groupby('occupation_title')['wage_diff'].mean().sort_values(ascending=False).head(10)
     plt.figure(figsize=(10, 6))
-    sns.barplot(y=top_gaps['occupation_title'], x=top_gaps['wage_diff'], palette="viridis")
-    plt.title("Top 10 Tech Occupations with Biggest Wage Gaps (H1B - General)")
-    plt.xlabel("Wage Difference (USD)")
-    plt.ylabel("Occupation Title")
-    plt.show()
+    wage_diff_by_title.plot(kind='barh', color='skyblue')
+    plt.title("Top 10 Job Titles with Largest Wage Differences")
+    plt.xlabel("Average Wage Difference (USD)")
+    plt.ylabel("Job Title")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "wage_diff_by_job_title.png"), dpi=300)
+    plt.close()
 
-def visualize_company_wages(h1b_transformed):
-    """Visualizes companies with the highest average H1B wages."""
-    company_wages = h1b_transformed.groupby('employer_name')['annual_wage'].mean().reset_index()
-    top_companies = company_wages.sort_values(by='annual_wage', ascending=False).head(10)
-    plt.figure(figsize=(12, 6))
-    sns.barplot(y=top_companies['employer_name'], x=top_companies['annual_wage'], palette="coolwarm")
-    plt.title("Top 10 Companies with Highest Average H1B Wages")
-    plt.xlabel("Average Annual H1B Wage (USD)")
-    plt.ylabel("Company Name")
-    plt.show()
+    # 3. Consistency of Wage Premiums Across Job Categories
+    plt.figure(figsize=(8, 6))
+    sns.boxplot(data=filtered_df, x="employer_name", y="wage_diff", notch=True, palette="pastel")
+    plt.title("Distribution of Wage Differences by Company")
+    plt.ylabel("Wage Difference (USD)")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "wage_diff_distribution_by_company.png"), dpi=300)
+    plt.close()
 
-def visualize_h1b_role_distribution(h1b_transformed):
-    """Visualizes the distribution of H1B workers by role."""
-    role_distribution = h1b_transformed['occupation_title'].value_counts().head(10)
-    plt.figure(figsize=(10, 6))
-    sns.barplot(y=role_distribution.index, x=role_distribution.values, palette="cubehelix")
-    plt.title("Top 10 Tech Roles for H1B Workers in Washington")
-    plt.xlabel("Number of H1B Workers")
-    plt.ylabel("Occupation Title")
-    plt.show()
+    # 4. Concentration of H1B Positions by Role
+    role_counts = filtered_df['occupation_title'].value_counts().head(5)
+    plt.figure(figsize=(8, 6))
+    role_counts.plot(kind='pie', autopct='%1.1f%%', startangle=140, colormap="viridis", wedgeprops={"edgecolor":"k"})
+    plt.title("Top 5 Roles for H1B Workers")
+    plt.ylabel("")
+    plt.tight_layout()
+    plt.savefig(os.path.join(output_dir, "h1b_role_distribution.png"), dpi=300)
+    plt.close()
 
+    print(f"Visualizations saved to {output_dir}")
+
+
+    print(f"Visualizations saved to {output_dir}")
 if __name__ == "__main__":
     # URLs for datasets
     h1b_url = "https://www.dol.gov/sites/dolgov/files/ETA/oflc/pdfs/LCA_Disclosure_Data_FY2023_Q3.xlsx"
@@ -239,14 +335,13 @@ if __name__ == "__main__":
 
     # Step 6: Save the datasets
     db_name = "h1b_oews_analysis.db"
+    output_dir = "../data"
     save_to_database(h1b_transformed, db_name, "h1b_roles")
     save_to_database(oews_transformed, db_name, "oews_roles")
     save_to_database(final_df, db_name, "h1b_oews_combined")
 
-    # Visualizations
-    visualize_h1b_vs_general_wages(final_df)
-    visualize_biggest_wage_gaps(final_df)
-    visualize_company_wages(h1b_transformed)
-    visualize_h1b_role_distribution(h1b_transformed)
-
-    print(f"Data pipeline complete. Final database saved at: {db_name}")
+    # Statistical Analysis and Visualizations
+    correlation_analysis(final_df, output_dir)
+    t_test_analysis(final_df, output_dir)
+    create_visualizations(final_df, output_dir)
+    print(f"Data pipeline complete. Final database and visualizations saved in: {output_dir}")
